@@ -1,0 +1,20 @@
+# Core database connectivity
+trino[sqlalchemy]==0.20.0
+
+# Configuration & environment
+PyYAML==6.0.1
+python-dateutil==2.8.2
+python-dotenv==1.0.0
+
+# Data processing & utilities
+requests==2.31.0
+pandas==2.0.3
+pyarrow==12.0.1
+
+# Orchestration (Dagster)
+dagster==1.12.0
+dagster-webserver==1.12.0
+python-json-logger==2.0.7
+
+# Testing
+pytest>=7.0.0

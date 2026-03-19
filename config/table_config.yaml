@@ -1,0 +1,265 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PIPELINE CONFIGURATION
+# Schema locations and defaults for each denormalization pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+pipelines:
+  json:
+    target_schema: 25live_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/25live_raw_denormalized
+    source_schema: 25live_raw
+
+  xml:
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    source_schema: mycv_raw
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TABLE CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+tables:
+  events:
+    root_key: events
+    entity_key: event
+    target_table: events
+    business_key: event_id
+    sort_by: event_id
+    child_tables:
+      event_history:
+        entity_key: event_history
+        parent_fk: event_id
+        sort_by: event_id
+  organizations:
+    root_key: organizations
+    entity_key: organization
+    target_table: organizations
+    business_key: organization_id
+    sort_by: organization_id
+  reservations:
+    root_key: reservations
+    entity_key: reservation
+    target_table: reservations
+    business_key: reservation_id
+    sort_by: reservation_id
+  resources:
+    root_key: resources
+    entity_key: resource
+    target_table: resources
+    business_key: resource_id
+    sort_by: resource_id
+  spaces:
+    root_key: spaces
+    entity_key: space
+    target_table: spaces
+    business_key: space_id
+    sort_by: space_id
+  contacts:
+    root_key: contacts
+    entity_key: contact
+    target_table: contacts
+    business_key: contact_id
+    sort_by: contact_id
+    child_tables:
+      contact_r25user:
+        entity_key: r25user
+        parent_fk: contact_id
+        sort_by: contact_id
+      contact_address:
+        entity_key: address
+        parent_fk: contact_id
+        sort_by: contact_id
+
+# ─────────────────────────────────────────────────────────────────────────────
+# XML TABLES  (source: mycv_raw  →  target: mycv_raw_denormalized)
+# Each table must declare:
+#   format: symplectic            (Symplectic Elements API XML format)
+#   source_schema: mycv_raw
+#   target_schema: mycv_raw_denormalized
+#   schema_location: S3 path for the target schema
+#   root_key:   wrapper key in the parsed output dict (e.g. "grants")
+#   entity_key: flat record key  (e.g. "grant")
+# ─────────────────────────────────────────────────────────────────────────────
+
+  grant:
+    format: symplectic
+    source_schema: mycv_raw
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    data_column: raw_xml
+    root_key: grant
+    entity_key: grant
+    target_table: grants
+    business_key: grant_id
+    sort_by: grant_id
+    child_tables:
+      grant_records:
+        entity_key: records
+        parent_fk: grant_id
+        sort_by: grant_id
+      grant_addresses:
+        entity_key: address
+        parent_fk: grant_id
+        sort_by: grant_id
+      grant_fields:
+        entity_key: fields
+        parent_fk: grant_id
+        sort_by: grant_id
+
+  group:
+    format: symplectic
+    source_schema: mycv_raw
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    data_column: raw_xml
+    root_key: group
+    entity_key: group
+    target_table: groups
+    business_key: group_id
+    sort_by: group_id
+    child_tables:
+      group_properties:
+        entity_key: group_properties
+        parent_fk: group_id
+        sort_by: group_id
+      group_membership:
+        entity_key: group_membership
+        parent_fk: group_id
+        sort_by: group_id
+      group_records:
+        entity_key: records
+        parent_fk: group_id
+        sort_by: group_id
+
+  professional_activity:
+    format: symplectic
+    source_schema: mycv_raw
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    data_column: raw_xml
+    root_key: professional_activity
+    entity_key: activity
+    target_table: professional_activities
+    business_key: activity_id
+    sort_by: activity_id
+    child_tables:
+      activity_records:
+        entity_key: records
+        parent_fk: activity_id
+        sort_by: activity_id
+
+  publication:
+    format: symplectic
+    source_schema: mycv_raw
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    data_column: raw_xml
+    root_key: publication
+    entity_key: publication
+    target_table: publications
+    business_key: publication_id
+    sort_by: publication_id
+    child_tables:
+      publication_records:
+        entity_key: records
+        parent_fk: publication_id
+        sort_by: publication_id
+      publication_authors:
+        entity_key: person
+        parent_fk: publication_id
+        sort_by: publication_id
+      publication_keywords:
+        entity_key: keywords
+        parent_fk: publication_id
+        sort_by: publication_id
+      publication_funding:
+        entity_key: funding
+        parent_fk: publication_id
+        sort_by: publication_id
+      publication_identifiers:
+        entity_key: identifiers
+        parent_fk: publication_id
+        sort_by: publication_id
+      publication_links:
+        entity_key: links
+        parent_fk: publication_id
+        sort_by: publication_id
+      publication_subtypes:
+        entity_key: subtypes
+        parent_fk: publication_id
+        sort_by: publication_id
+      publication_journal:
+        entity_key: journal
+        parent_fk: publication_id
+        sort_by: publication_id
+
+  teaching_activity:
+    format: symplectic
+    source_schema: mycv_raw
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    data_column: raw_xml
+    root_key: teaching_activity
+    entity_key: teaching_activity
+    target_table: teaching_activities
+    business_key: teaching_activity_id
+    sort_by: teaching_activity_id
+    child_tables:
+      teaching_activity_records:
+        entity_key: records
+        parent_fk: teaching_activity_id
+        sort_by: teaching_activity_id
+
+  user:
+    format: symplectic
+    source_schema: mycv_raw
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    data_column: raw_xml
+    root_key: user
+    entity_key: user
+    target_table: users
+    business_key: user_id
+    sort_by: user_id
+    child_tables:
+      user_org_data:
+        entity_key: org_data
+        parent_fk: user_id
+        sort_by: user_id
+      user_search_settings:
+        entity_key: search_settings
+        parent_fk: user_id
+        sort_by: user_id
+      user_addresses:
+        entity_key: address
+        parent_fk: user_id
+        sort_by: user_id
+      user_identifiers:
+        entity_key: identifiers
+        parent_fk: user_id
+        sort_by: user_id
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SOURCE SCHEMA DISCOVERY
+# Tables listed here are discovered at runtime from Trino's SHOW TABLES query.
+# Every table found in a source schema is processed using the schema-level
+# defaults below.  Manually-configured entries in the 'tables' section above
+# always take precedence over auto-discovered ones.
+#
+#   format:          Parser type  (symplectic | json | xml)
+#   target_schema:   Iceberg schema to write denormalized tables into
+#   schema_location: S3 root for the target schema
+# ─────────────────────────────────────────────────────────────────────────────
+
+source_schemas:
+  25live_raw:
+    format: json
+    target_schema: 25live_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/25live_raw_denormalized
+    data_column: data
+
+  mycv_raw:
+    format: symplectic
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    data_column: raw_xml    # Payload column name — skips SHOW COLUMNS auto-detection
