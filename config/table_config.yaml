@@ -3,6 +3,30 @@
 # Schema locations and defaults for each denormalization pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Trino connection settings
+trino:
+  port: 443
+  catalog: iceberg
+
+# Performance tuning
+performance:
+  # XML/JSON parsing workers (max concurrent threads for parsing payloads)
+  parse_workers_max: 16          # Max workers for parsing (up from 8)
+  parse_workers_min: 4           # Min workers to always use (up from 1)
+  parse_rows_per_worker: 10      # Rows per worker ratio (down from 50 for more parallelism)
+
+  # Child table processing
+  child_table_workers: 4         # Max concurrent child tables to process
+
+  # Table-level concurrency (for async table processing in dagster_assets)
+  table_concurrency: 5           # Max concurrent tables (up from 3)
+
+  # Batch insert settings
+  batch_size_min: 50             # Minimum batch size
+  batch_size_max: 2000           # Maximum batch size
+  batch_target_bytes: 1500000    # Target ~1.5MB per batch
+  batch_avg_chars_per_value: 40  # Estimated chars per value
+
 pipelines:
   json:
     target_schema: 25live_raw_denormalized

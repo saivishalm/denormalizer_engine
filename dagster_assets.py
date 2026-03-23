@@ -52,7 +52,7 @@ class TrinoEngineResource(ConfigurableResource):
     password: str
 
     def build_clients(
-        self, target_schema: str, schema_location: str
+        self, target_schema: str, schema_location: str, config_data: dict = None
     ) -> tuple[TrinoClient, ConfigLoader, DenormalizationEngine]:
         """
         Create and connect a TrinoClient, load the YAML config, and
@@ -66,12 +66,20 @@ class TrinoEngineResource(ConfigurableResource):
                 )
             )
 
+        # Load Trino settings from config if provided
+        trino_config = {}
+        if config_data:
+            trino_config = config_data.get("trino", {})
+
+        port = trino_config.get("port", 443)
+        catalog = trino_config.get("catalog", "iceberg")
+
         trino = TrinoClient(
             host=self.host,
-            port=443,
+            port=port,
             user=self.user,
             password=self.password,
-            catalog="iceberg",
+            catalog=catalog,
         )
         trino.connect()
 
@@ -79,11 +87,15 @@ class TrinoEngineResource(ConfigurableResource):
         config_loader = ConfigLoader(str(config_dir))
         config_loader.load_table_config()
 
+        # Load performance settings from config
+        perf_config = config_data.get("performance", {}) if config_data else {}
+
         engine = DenormalizationEngine(
             trino_client=trino,
-            catalog="iceberg",
+            catalog=catalog,
             target_schema=target_schema,
             schema_location=schema_location,
+            performance_config=perf_config,
         )
 
         return trino, config_loader, engine
@@ -120,6 +132,7 @@ def _run_one_table(
     default_target_schema: str,
     default_schema_location: str,
     source_schema_fallback: str,
+    config_data: dict = None,
 ) -> dict[str, Any]:
     """
     Execute denormalization for one source table and return engine results.
@@ -127,6 +140,7 @@ def _run_one_table(
     _, config_loader, engine = trino_engine.build_clients(
         target_schema=default_target_schema,
         schema_location=default_schema_location,
+        config_data=config_data,
     )
 
     results = engine.run_table(
@@ -174,6 +188,11 @@ def _build_parent_asset(
         context: AssetExecutionContext,
         trino_engine: TrinoEngineResource,
     ) -> MaterializeResult:
+        # Load config for passing to _run_one_table
+        config_dir = Path(__file__).parent / "config"
+        temp_loader = ConfigLoader(str(config_dir))
+        config_data = temp_loader.load_table_config()
+
         results = _run_one_table(
             log=context.log,
             trino_engine=trino_engine,
@@ -182,6 +201,7 @@ def _build_parent_asset(
             default_target_schema=default_target_schema,
             default_schema_location=default_schema_location,
             source_schema_fallback=source_schema_fallback,
+            config_data=config_data,
         )
 
         return MaterializeResult(
@@ -226,6 +246,11 @@ def _build_child_asset(
         context: AssetExecutionContext,
         trino_engine: TrinoEngineResource,
     ) -> MaterializeResult:
+        # Load config for passing to _run_one_table
+        config_dir = Path(__file__).parent / "config"
+        temp_loader = ConfigLoader(str(config_dir))
+        config_data = temp_loader.load_table_config()
+
         results = _run_one_table(
             log=context.log,
             trino_engine=trino_engine,
@@ -234,6 +259,7 @@ def _build_child_asset(
             default_target_schema=default_target_schema,
             default_schema_location=default_schema_location,
             source_schema_fallback=source_schema_fallback,
+            config_data=config_data,
         )
         child_results = results.get("child_results", {}).get(child_name, {})
 
@@ -324,17 +350,22 @@ async def _run_tables_async(
     config_loader: ConfigLoader,
     config_tables: dict,
     log: logging.Logger,
+    config_data: dict = None,
 ) -> tuple[int, list[str]]:
     """
-    Process all tables with asyncio (≤3 concurrent workers).
+    Process all tables with asyncio (bounded concurrency).
     Returns (success_count, failed_table_names).
     Blocking table work is executed via asyncio.to_thread since the Trino
     client is synchronous.
     """
+    # Get table concurrency from config
+    perf_config = config_data.get("performance", {}) if config_data else {}
+    table_concurrency = perf_config.get("table_concurrency", 3)
+
     table_names = list(config_tables.keys())
     success_count = 0
     failed_tables: list[str] = []
-    semaphore = asyncio.Semaphore(3)
+    semaphore = asyncio.Semaphore(table_concurrency)
 
     async def _process_one(table_name: str) -> tuple[str, dict | None, Exception | None]:
         table_config = config_tables[table_name]
@@ -380,9 +411,10 @@ def _run_tables(
     config_loader: ConfigLoader,
     config_tables: dict,
     log: logging.Logger,
+    config_data: dict = None,
 ) -> tuple[int, list[str]]:
     """Sync wrapper for Dagster assets that runs async orchestration."""
-    return asyncio.run(_run_tables_async(engine, config_loader, config_tables, log))
+    return asyncio.run(_run_tables_async(engine, config_loader, config_tables, log, config_data))
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +454,7 @@ def live25_raw_denormalized(
     trino, config_loader, engine = trino_engine.build_clients(
         target_schema=target_schema,
         schema_location=schema_location,
+        config_data=config_data,
     )
     log.info("[OK] Connected to Trino at %s", trino.host)
 
@@ -462,7 +495,7 @@ def live25_raw_denormalized(
 
     log.info("[JSON] %d table(s) to process: %s", len(config_tables), ", ".join(config_tables))
 
-    success_count, failed_tables = _run_tables(engine, config_loader, config_tables, log)
+    success_count, failed_tables = _run_tables(engine, config_loader, config_tables, log, config_data)
 
     log.info("=" * 70)
     log.info("[JSON SUMMARY] %d/%d tables completed successfully", success_count, len(config_tables))
@@ -515,6 +548,7 @@ def mycv_raw_denormalized(
     trino, config_loader, engine = trino_engine.build_clients(
         target_schema=target_schema,
         schema_location=schema_location,
+        config_data=config_data,
     )
     log.info("[OK] Connected to Trino at %s", trino.host)
 
@@ -553,7 +587,7 @@ def mycv_raw_denormalized(
 
     log.info("[XML] %d table(s) to process: %s", len(config_tables), ", ".join(config_tables))
 
-    success_count, failed_tables = _run_tables(engine, config_loader, config_tables, log)
+    success_count, failed_tables = _run_tables(engine, config_loader, config_tables, log, config_data)
 
     log.info("=" * 70)
     log.info("[XML SUMMARY] %d/%d tables completed successfully", success_count, len(config_tables))

@@ -53,6 +53,7 @@ class DenormalizationEngine:
         catalog: str,
         target_schema: str,
         schema_location: str,
+        performance_config: dict = None,
     ):
         self.trino = trino_client
         self.catalog = catalog
@@ -61,6 +62,17 @@ class DenormalizationEngine:
         self.target_schema_q = (
             f'"{target_schema}"' if target_schema[0].isdigit() else target_schema
         )
+
+        # Load performance settings with defaults
+        perf = performance_config or {}
+        self.parse_workers_max = perf.get("parse_workers_max", 8)
+        self.parse_workers_min = perf.get("parse_workers_min", 1)
+        self.parse_rows_per_worker = perf.get("parse_rows_per_worker", 50)
+        self.child_table_workers = perf.get("child_table_workers", 4)
+        self.batch_size_min = perf.get("batch_size_min", 50)
+        self.batch_size_max = perf.get("batch_size_max", 2000)
+        self.batch_target_bytes = perf.get("batch_target_bytes", 1500000)
+        self.batch_avg_chars_per_value = perf.get("batch_avg_chars_per_value", 40)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public API
@@ -154,7 +166,10 @@ class DenormalizationEngine:
         flat_rows: list[dict]              = []
         child_rows: dict[str, list[dict]] = {name: [] for name in child_configs}
 
-        parse_workers = min(8, max(1, len(raw_rows) // 50 + 1))
+        parse_workers = min(
+            self.parse_workers_max,
+            max(self.parse_workers_min, len(raw_rows) // self.parse_rows_per_worker + 1)
+        )
         logger.info(f"  Parsing {len(raw_rows)} rows with {parse_workers} worker thread(s)")
 
         with ThreadPoolExecutor(max_workers=parse_workers) as parse_pool:
@@ -194,7 +209,7 @@ class DenormalizationEngine:
 
         # 5. Child tables (process in parallel)
         if child_configs:
-            with ThreadPoolExecutor(max_workers=min(4, len(child_configs))) as executor:
+            with ThreadPoolExecutor(max_workers=min(self.child_table_workers, len(child_configs))) as executor:
                 futures = {}
                 for child_name, child_cfg in child_configs.items():
                     future = executor.submit(
@@ -555,13 +570,14 @@ class DenormalizationEngine:
         columns    = list(schema.keys())
         col_str    = ", ".join(columns)
         inserted   = 0
-        # Estimate ~30 chars per value on average (col name in header + value literal).
-        # Target ~800KB per batch to stay safely under the 1MB limit.
+        # Estimate chars per value on average (col name in header + value literal).
+        # Target batch size to stay safely under Trino's 1 MB query-text limit
+        # when accounting for INSERT header + column names overhead.
         num_cols   = max(len(columns), 1)
-        # Target ~1.5 MB per batch (safely under Trino's 1 MB query-text limit
-        # when accounting for INSERT header + column names overhead).
-        # Use 40-char average per value; allow up to 2 000 rows for narrow tables.
-        batch_size = max(50, min(2_000, 1_500_000 // (num_cols * 40)))
+        batch_size = max(
+            self.batch_size_min,
+            min(self.batch_size_max, self.batch_target_bytes // (num_cols * self.batch_avg_chars_per_value))
+        )
 
         for batch_start in range(0, len(rows), batch_size):
             batch_end = min(batch_start + batch_size, len(rows))

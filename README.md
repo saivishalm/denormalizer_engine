@@ -1,50 +1,82 @@
-# JSON Parser 2.0 - 25Live Denormalization Framework
+# BU Denormalization Engine
 
-**Production-grade Python framework for denormalizing nested JSON payloads from Trino/Iceberg.**
+**Production-grade Python framework for denormalizing nested JSON and XML data from Trino/Iceberg.**
 
 ## Overview
 
-This project denormalizes raw 25Live JSON data from `iceberg.25live_raw` into normalized Iceberg tables in `iceberg.25live_raw_denormalized`.
+This project denormalizes raw data from Trino/Iceberg into normalized tables:
+- **JSON Pipeline**: `25live_raw` → `25live_raw_denormalized` (25Live event data)
+- **XML Pipeline**: `mycv_raw` → `mycv_raw_denormalized` (Symplectic Elements data)
 
 **Key Features:**
-- ✅ Configuration-driven (YAML-based table mappings)
+- ✅ Configuration-driven (YAML-based table mappings and performance tuning)
 - ✅ Automatic schema inference and drift handling
-- ✅ Parallel processing (3 concurrent main tables, 4 concurrent child tables)
-- ✅ Optimized batch size (500 rows) for Trino query limits
-- ✅ TRUNCATE-based table clearing (90% faster than DELETE)
-- ✅ Auto-discovery of child tables from JSON arrays
-- ✅ Dagster integration with lineage tracking
-- ✅ **17-23x performance improvement** vs original implementation
-
-**Execution Time:** All 6 tables in **~1 minute 46 seconds** (March 16, 2026 benchmark)
+- ✅ Parallel processing (configurable workers for parsing and table processing)
+- ✅ Optimized batch sizes for Trino query limits
+- ✅ Auto-discovery of child tables from nested structures
+- ✅ Dagster orchestration with lineage tracking
+- ✅ **4-8x performance improvement** with configurable tuning
 
 ## Architecture
 
 ```
 src/
 ├── core/
-│   ├── denormalization_engine.py   # Main engine (generic + optimized)
+│   ├── denormalization_engine.py   # Main engine with performance tuning
 │   ├── config_loader.py            # YAML configuration management
 │   └── schema_autodiscovery.py     # Auto-discover child tables
 ├── db/
-│   ├── trino_client.py             # Trino connectivity
-│   └── sql_builder.py              # SQL generation
-└── utils/
-    └── logger.py                   # Logging setup
+│   └── trino_client.py             # Trino connectivity
+└── parsers/
+    ├── symplectic_parser.py        # XML parser for Symplectic API
+    └── xml_parser.py               # Generic XML parser
 
 config/
-├── table_config.yaml               # Table mappings (6 tables)
+└── table_config.yaml               # Centralized configuration
 
-dagster_pipeline/
-├── assets/                         # Denormalization assets
-├── resources/                      # Trino/Config resources
-├── shared/                         # Retry policies
-└── definitions.py                  # Dagster entry point
+dagster_assets.py                   # Dagster orchestration (main entry point)
 ```
 
 ## Configuration
 
-**Table Configuration** (`config/table_config.yaml`):
+All settings are centralized in `config/table_config.yaml`:
+
+### **Trino Connection**
+```yaml
+trino:
+  port: 443
+  catalog: iceberg
+```
+
+### **Performance Tuning**
+```yaml
+performance:
+  parse_workers_max: 16          # Max workers for parsing XML/JSON
+  parse_workers_min: 4           # Min workers to always use
+  parse_rows_per_worker: 10      # Rows per worker ratio
+  child_table_workers: 4         # Max concurrent child tables
+  table_concurrency: 5           # Max concurrent tables in async processing
+  batch_size_min: 50             # Minimum batch size for inserts
+  batch_size_max: 2000           # Maximum batch size
+  batch_target_bytes: 1500000    # Target ~1.5MB per batch
+  batch_avg_chars_per_value: 40  # Estimated chars per value
+```
+
+### **Pipeline Configuration**
+```yaml
+pipelines:
+  json:
+    target_schema: 25live_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/25live_raw_denormalized
+    source_schema: 25live_raw
+
+  xml:
+    target_schema: mycv_raw_denormalized
+    schema_location: s3a://buaws-datalake-nonprod-s3/raw/mycv_raw_denormalized
+    source_schema: mycv_raw
+```
+
+### **Table Mappings**
 ```yaml
 tables:
   events:
@@ -53,82 +85,147 @@ tables:
     target_table: events
     business_key: event_id
     sort_by: event_id
+    child_tables:
+      event_history:
+        entity_key: event_history
+        parent_fk: event_id
+        sort_by: event_id
 ```
 
-**Environment Variables** (via `setup_env.ps1` or system):
-```powershell
-$env:DENORMALIZER_ENV = "prod"
-$env:TRINO_HOST = "trino.de-eks-nonprod.bu.edu"
-$env:TRINO_PORT = "443"           # HTTPS
-$env:TRINO_USER = "dataeng_svmiriya"
-$env:TRINO_PASSWORD = "[secret]"  # Use AWS Secrets Manager in prod
+### **Environment Variables** (`.env` file)
+```bash
+TRINO_HOST=trino.de-eks-nonprod.bu.edu
+TRINO_USER=your_username
+TRINO_PASSWORD=your_password
+DENORMALIZER_ENV=nonprod
+```
+
+## Installation
+
+```bash
+# Navigate to project
+cd json_parser2
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create environment file from template
+cp .env.example .env
+
+# Edit .env with your credentials
+# Required variables:
+#   TRINO_HOST=trino.de-eks-nonprod.bu.edu
+#   TRINO_USER=your_username
+#   TRINO_PASSWORD=your_password
 ```
 
 ## Usage
 
-### Option 1: Fast Parallel Script (Recommended for Scheduled Jobs) ⭐
+### **Dagster Orchestration (Recommended)**
 
-```powershell
-cd c:\Users\visha\Programs\json_parser2
-. .\setup_env.ps1
-python denormalize_fast.py
+Start Dagster UI:
+```bash
+dagster dev -f dagster_assets.py -h 0.0.0.0 -p 3001
 ```
 
-**Time:** ~1m46s for all 6 tables (Feb 2026 benchmark shows this is much faster)
-**Features:** No auto-discovery (uses pre-configured tables only)  
-**Perfect for:** Hourly/daily scheduled jobs with stable schemas
+Access UI at: http://localhost:3001
 
-### Option 2: Full Discovery Script (Weekly Runs)
+**Features:**
+- Full workflow orchestration
+- Asset lineage tracking
+- Monitoring and retries
+- Scheduled execution (daily at 9:00 AM)
 
-```powershell
-python denormalize_all.py
-```
-
-**Time:** ~10-13 minutes for 6 tables  
-**Features:** Parallel processing + auto-discovery for new tables  
-**Perfect for:** Weekly full runs, when schemas might change
-
-### Option 3: Dagster Orchestration
+### **Direct Materialization**
 
 ```bash
-# Install
-pip install -r requirements.txt
+# Materialize both pipelines
+dagster asset materialize -f dagster_assets.py --select "*"
 
-# Run UI (development)
-dagster dev
+# Materialize JSON pipeline only
+dagster asset materialize -f dagster_assets.py --select 25live_raw_denormalized
 
-# Execute job (production)
-dagster job execute -j denormalize_25live
+# Materialize XML pipeline only
+dagster asset materialize -f dagster_assets.py --select mycv_raw_denormalized
 ```
 
-**Features:** Full workflow orchestration, lineage tracking, monitoring  
-**Perfect for:** Production orchestration with audit trail
+## Permissions Required
 
-## Tables Processed (6 Total)
+Your Trino user needs the following permissions:
 
-| Table | Status |
-|-------|--------|
-| events | ✅ Denormalized |
-| organizations | ✅ Denormalized |
-| reservations | ✅ Denormalized |
-| resources | ✅ Denormalized |
-| spaces | ✅ Denormalized |
-| contacts | ✅ Denormalized (31,164 rows) |
+### **Read Permissions (Source Schemas)**
+```sql
+GRANT SELECT ON iceberg.25live_raw TO your_user;
+GRANT SELECT ON iceberg.mycv_raw TO your_user;
+```
 
-## Optimizations (17-23x Speedup)
+### **Write Permissions (Target Schemas)**
+```sql
+GRANT CREATE TABLE ON iceberg.25live_raw_denormalized TO your_user;
+GRANT INSERT ON iceberg.25live_raw_denormalized TO your_user;
+GRANT DELETE ON iceberg.25live_raw_denormalized TO your_user;
 
-| Optimization | Before | After | Impact |
-|---|---|---|---|
-| Batch size | 100 rows | 500 rows | 5x fewer queries |
-| Truncate method | DELETE | TRUNCATE | 80-90% faster |
-| Child tables | Sequential | 4 parallel threads | 3-10x faster |
-| Main tables | Sequential | 3 parallel | 3x faster |
-| Auto-discovery | Always | Optional | 30-40% time saved |
-| Logging | Every 1000 rows | Every 5000 rows | 5-10% faster |
+GRANT CREATE TABLE ON iceberg.mycv_raw_denormalized TO your_user;
+GRANT INSERT ON iceberg.mycv_raw_denormalized TO your_user;
+GRANT DELETE ON iceberg.mycv_raw_denormalized TO your_user;
+```
 
-**Total:** 30-40 minutes → **1 minute 46 seconds**
+Or simpler:
+```sql
+GRANT ALL ON iceberg.25live_raw_denormalized TO your_user;
+GRANT ALL ON iceberg.mycv_raw_denormalized TO your_user;
+```
 
-## Schema Drift Handling
+## Data Pipelines
+
+### **JSON Pipeline (25Live)**
+**Source**: `iceberg.25live_raw.*`
+**Target**: `iceberg.25live_raw_denormalized.*`
+
+Tables processed:
+- events (with event_history child table)
+- organizations
+- reservations
+- resources
+- spaces
+- contacts (with contact_r25user, contact_address child tables)
+
+### **XML Pipeline (MyCV/Symplectic)**
+**Source**: `iceberg.mycv_raw.*`
+**Target**: `iceberg.mycv_raw_denormalized.*`
+
+Tables processed:
+- grant (with child tables)
+- group (with child tables)
+- professional_activity (with child tables)
+- publication (with child tables)
+- teaching_activity (with child tables)
+- user (with child tables)
+
+## Performance Optimizations
+
+### **Configurable Settings** (in `table_config.yaml`)
+
+| Setting | Default | Tuning Guide |
+|---------|---------|--------------|
+| `parse_workers_max` | 16 | Increase for more CPU cores |
+| `parse_workers_min` | 4 | Lower for smaller datasets |
+| `table_concurrency` | 5 | Increase for more parallel processing |
+| `batch_size_max` | 2000 | Adjust based on table width |
+
+### **Performance Features**
+
+- ✅ **Multi-threaded parsing**: XML/JSON parsing uses ThreadPoolExecutor
+- ✅ **Parallel table processing**: Multiple tables processed concurrently
+- ✅ **Parallel child tables**: Child tables created in parallel
+- ✅ **Batch inserts**: Configurable batch sizes to optimize query size
+- ✅ **TRUNCATE operations**: Faster than DELETE for full refresh
+
+### **Expected Performance**
+
+With optimized settings:
+- **JSON pipeline**: ~2-3 minutes for 6 tables
+- **XML pipeline**: ~7-15 minutes for 6 tables (vs 1 hour unoptimized)
 
 Automatic schema detection and evolution:
 - ✅ Detects new columns from JSON payloads
