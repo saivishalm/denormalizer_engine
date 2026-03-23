@@ -16,10 +16,10 @@ if (Test-Path .env) {
 # Option 2: Set manually
 # === PRODUCTION ENVIRONMENT ===
 [Environment]::SetEnvironmentVariable("DENORMALIZER_ENV", "prod", "Process")
-[Environment]::SetEnvironmentVariable("TRINO_HOST", "trino.de-eks-nonprod.bu.edu", "Process")
-[Environment]::SetEnvironmentVariable("TRINO_PORT", "443", "Process")
-[Environment]::SetEnvironmentVariable("TRINO_USER", "dataeng_svmiriya", "Process")
-[Environment]::SetEnvironmentVariable("TRINO_PASSWORD", "8fd0399d333bf9dc91b4eeb840ba6ab4ef9c1d7dd327549c", "Process")
+[Environment]::SetEnvironmentVariable("TRINO_HOST", "xxxxxxxxxxxxxxxxxx", "Process")
+[Environment]::SetEnvironmentVariable("TRINO_PORT", "xxx", "Process")
+[Environment]::SetEnvironmentVariable("TRINO_USER", "xxxxxxxxxxxxxx", "Process")
+[Environment]::SetEnvironmentVariable("TRINO_PASSWORD", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "Process")
 
 # === DEVELOPMENT ENVIRONMENT (uncomment to use) ===
 # [Environment]::SetEnvironmentVariable("DENORMALIZER_ENV", "dev", "Process")
